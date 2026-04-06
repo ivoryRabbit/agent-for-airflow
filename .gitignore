@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment — never commit secrets
+.env
+
+# Airflow
+logs/
+airflow.db
+airflow.cfg
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# Docker volumes (if accidentally created locally)
+postgres-data/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
