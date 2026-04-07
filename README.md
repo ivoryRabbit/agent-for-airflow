@@ -27,7 +27,7 @@ Airflow ──on_failure_callback──► Slack Channel
               │  Claude / OpenAI / Gemini   │
               └──────┬──────────────────────┘
                      │
-                app/tools/  →  Airflow REST API v2
+                app/airflow/tools/  →  Airflow REST API v2
 ```
 
 ## Prerequisites
@@ -109,20 +109,22 @@ docker compose ps   # webserver should show "(healthy)"
 
 ### 5. Configure Airflow to send Slack alerts
 
-The example DAG in `dags/example_pipeline.py` already has an `on_failure_callback` configured.
-For your own DAGs, add a callback that posts to `SLACK_ALERT_CHANNEL` in this format:
+The example DAG in `dags/example_pipeline.py` already has an `on_failure_callback` configured using `SlackWebhookHook` (conn_id: `slack_default`). The `AIRFLOW_CONN_SLACK_DEFAULT` env var set in docker-compose is picked up automatically.
 
-```
-DAG <dag_id> failed
-Run ID: <dag_run_id>
-```
+For your own DAGs, use the same hook pattern. The agent parses the following fields from the alert message — include as many as possible for faster and more accurate analysis:
 
-The agent parses dag_id and dag_run_id via regex, so exact formatting is flexible as long as both values are present.
+| Field | Required | Benefit |
+|---|---|---|
+| `dag_id`, `dag_run_id` | Yes | Core identifiers for all API calls |
+| `task_id`, `try_number` | Recommended | Skips `get_failed_tasks` API call |
+| `error_msg` | Recommended | Used as a hint to guide LLM analysis |
+| `execution_date`, `schedule`, `owner` | Optional | Richer context in the summary |
+| `log_url` | Optional | Direct link for DE to open Airflow UI |
 
 ### 6. Run the agent
 
 ```bash
-python -m slack.app
+python -m app.app
 ```
 
 ### 7. Test
@@ -171,6 +173,7 @@ While the agent is processing, it adds a 🤔 reaction to your message. The reac
 | `SLACK_APP_TOKEN` | Yes | — | App-level token for Socket Mode (`xapp-...`) |
 | `SLACK_ALERT_CHANNEL` | Yes | — | Channel ID (not name) that receives Airflow alerts |
 | `SLACK_AIRFLOW_BOT_USER` | No | — | If set, only messages from this user ID are treated as alerts. Leave empty when using the same bot token for alerts and the agent. |
+| `SLACK_WEBHOOK_URL` | No | — | Incoming Webhook URL for Airflow `on_failure_callback` (set as `AIRFLOW_CONN_SLACK_DEFAULT` in Docker) |
 
 ## Project Structure
 
@@ -181,18 +184,18 @@ agent-for-airflow/
 ├── .env.example
 ├── dags/                   # Example DAGs for local testing
 │   └── example_pipeline.py # 4 failure scenarios (sensor/extract/load/none)
-├── app/                    # Airflow REST API client + tools
-│   ├── airflow_client.py   # Async httpx client for Airflow REST API v2
-│   ├── config.py           # Settings (base URL, credentials)
-│   └── tools/
-│       ├── read.py         # list_dags, get_dag_run_status, get_failed_tasks,
-│       │                   # get_task_logs, get_dag_runs
-│       └── write.py        # trigger_dag, clear_task, mark_task_state, set_dag_paused
-└── slack/                  # Slack agent
+└── app/
     ├── app.py              # Slack Bolt entry point (message + app_mention handlers)
     ├── agent.py            # analyze_failure, handle_instruction, handle_general_question
     ├── parser.py           # Parses dag_id/dag_run_id from alert messages
     ├── store.py            # In-memory thread context store (thread_ts → DAG context)
+    ├── config.py           # Settings (base URL, credentials)
+    ├── airflow/            # Airflow REST API client + tools
+    │   ├── client.py       # Async httpx client for Airflow REST API v2
+    │   └── tools/
+    │       ├── read.py     # list_dags, get_dag_run_status, get_failed_tasks,
+    │       │               # get_task_logs, get_dag_runs
+    │       └── write.py    # trigger_dag, clear_task, mark_task_state, set_dag_paused
     ├── llm/                # LLM provider abstraction
     │   ├── base.py         # LLMProvider (ABC) + ToolDefinition
     │   ├── claude.py       # Anthropic implementation

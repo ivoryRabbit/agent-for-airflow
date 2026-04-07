@@ -4,7 +4,7 @@ from typing import Any, Awaitable, Callable
 
 import anthropic
 
-from .base import LLMProvider, ToolDefinition
+from app.llm.base import LLMProvider, ToolDefinition
 
 
 class ClaudeProvider(LLMProvider):

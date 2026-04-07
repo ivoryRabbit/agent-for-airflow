@@ -58,15 +58,17 @@ Slack Channel
 
 AI Agent
     ├── LLM Provider (Claude / OpenAI / Gemini — swappable via LLM_PROVIDER)
-    ├── app/tools/
+    ├── app/airflow/tools/
     │     ├── read.py  — list_dags, get_dag_run_status, get_failed_tasks,
     │     │              get_task_logs, get_dag_runs
     │     └── write.py — trigger_dag, clear_task, mark_task_state, set_dag_paused
     └── Scheduler — daily report cron trigger
 
 [Failure Response Flow]
-DAG fails → Airflow posts alert to Slack channel
-    → Agent fetches logs and analyzes failure
+DAG fails → Airflow on_failure_callback posts alert via Slack Incoming Webhook
+    → Alert includes: dag_id, dag_run_id, task_id, try_number, error_msg, log_url
+    → Agent parses alert, skips get_failed_tasks API call if task_id present
+    → Agent fetches task logs and analyzes failure (error_msg used as hint)
     → Posts summary + suggested actions in alert thread
     → DE replies with instruction
     → Agent executes action and reports back
@@ -75,8 +77,8 @@ DAG fails → Airflow posts alert to Slack channel
 ## Tech Stack
 
 - **LLM**: Claude / OpenAI / Gemini (selectable via `LLM_PROVIDER` env var)
-- **Airflow integration**: Internal Airflow REST API v2 via async httpx (`app/airflow_client.py`)
-- **Slack integration**: Slack Bolt for Python (Socket Mode, event-driven)
+- **Airflow integration**: Internal Airflow REST API v2 via async httpx (`app/airflow/client.py`)
+- **Slack integration**: Slack Bolt for Python (Socket Mode, event-driven); Incoming Webhook (`SlackWebhookHook`) for Airflow `on_failure_callback`
 - **Required Slack scopes**: `chat:write`, `channels:history`, `channels:read`, `app_mentions:read`, `reactions:write`
 - **Scheduling**: cron for daily report
 - **Local dev / testing**: Airflow running via Docker Compose
@@ -109,24 +111,25 @@ agent-for-airflow/
 ├── docker-compose.yml      # local Airflow for development & testing
 ├── dags/                   # example DAGs for local testing
 │   └── example_pipeline.py
-├── app/                    # Airflow REST API client + tools
-│   ├── airflow_client.py
-│   ├── config.py
-│   └── tools/
-│       ├── read.py
-│       └── write.py
-└── slack/                  # Slack agent
-    ├── app.py
-    ├── agent.py
-    ├── parser.py
-    ├── store.py
-    ├── llm/
-    │   ├── base.py
-    │   ├── claude.py
-    │   ├── openai.py
-    │   ├── gemini.py
-    │   └── factory.py
+└── app/
+    ├── app.py              # Slack Bolt entry point
+    ├── agent.py            # analyze_failure, handle_instruction, handle_general_question
+    ├── parser.py           # Parses dag_id, dag_run_id, task_id, try_number, error_msg from alert messages
+    ├── store.py            # In-memory thread context store (thread_ts → DAG context)
+    ├── config.py           # Settings (base URL, credentials)
+    ├── airflow/            # Airflow REST API client + tools
+    │   ├── client.py       # Async httpx client for Airflow REST API v2
+    │   └── tools/
+    │       ├── read.py     # list_dags, get_dag_run_status, get_failed_tasks,
+    │       │               # get_task_logs, get_dag_runs
+    │       └── write.py    # trigger_dag, clear_task, mark_task_state, set_dag_paused
+    ├── llm/                # LLM provider abstraction
+    │   ├── base.py         # LLMProvider (ABC) + ToolDefinition
+    │   ├── claude.py       # Anthropic implementation
+    │   ├── openai.py       # OpenAI implementation
+    │   ├── gemini.py       # Google Gemini implementation
+    │   └── factory.py      # Selects provider from LLM_PROVIDER env var
     └── handlers/
-        ├── alert.py
-        └── reply.py
+        ├── alert.py        # New alert → fetch logs → analyze → post in thread
+        └── reply.py        # DE thread reply → execute instruction → report back
 ```

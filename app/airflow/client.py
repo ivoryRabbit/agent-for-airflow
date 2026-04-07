@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 
-from .config import settings
+from app.config import settings
 
 BASE = "/api/v1"
 

@@ -1,6 +1,6 @@
 # Tools
 
-Python functions in `app/tools/` that the agent calls to interact with Airflow.
+Python functions in `app/airflow/tools/` that the agent calls to interact with Airflow.
 Each tool maps to one or more Airflow REST API v2 endpoints.
 
 ---

@@ -5,7 +5,7 @@ from typing import Any, Awaitable, Callable
 import google.generativeai as genai
 from google.generativeai import protos
 
-from .base import LLMProvider, ToolDefinition
+from app.llm.base import LLMProvider, ToolDefinition
 
 
 class GeminiProvider(LLMProvider):
@@ -68,7 +68,6 @@ class GeminiProvider(LLMProvider):
             if not fn_calls:
                 return _extract_text(response)
 
-            # Execute all function calls and collect results
             fn_responses = []
             for fc in fn_calls:
                 result = await executor(fc.name, dict(fc.args))

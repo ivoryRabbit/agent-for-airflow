@@ -11,10 +11,10 @@ load_dotenv()
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
-from slack.agent import AirflowAgent
-from slack.handlers.alert import handle_alert
-from slack.handlers.reply import handle_reply
-from slack.parser import is_failure_alert, parse_alert
+from app.agent import AirflowAgent
+from app.handlers.alert import handle_alert
+from app.handlers.reply import handle_reply
+from app.parser import is_failure_alert, parse_alert
 
 _agent = AirflowAgent()
 
@@ -95,7 +95,15 @@ async def on_mention(event: dict, client) -> None:
     await client.reactions_add(channel=channel, name="thinking_face", timestamp=ts)
 
     try:
-        response = await _agent.handle_general_question(text)
+        thread_history: list[dict] = []
+        if event.get("thread_ts"):
+            resp = await client.conversations_replies(channel=channel, ts=thread_ts)
+            thread_history = [
+                {"role": "assistant" if m.get("bot_id") else "user", "content": m.get("text", "")}
+                for m in resp.get("messages", [])
+                if m.get("text")
+            ]
+        response = await _agent.handle_general_question(text, thread_history=thread_history)
     except Exception as e:
         response = f":warning: 오류가 발생했어요: {e}"
 

@@ -1,14 +1,13 @@
 """Handles new Airflow failure alerts posted to the monitored channel."""
 
 import asyncio
-from typing import Any
 
 from slack_sdk.web.async_client import AsyncWebClient
 
-from app.tools import read
-from slack.agent import AirflowAgent
-from slack.parser import AirflowAlert
-from slack.store import thread_store
+from app.airflow.tools import read
+from app.agent import AirflowAgent
+from app.parser import AirflowAlert
+from app.store import thread_store
 
 _agent = AirflowAgent()
 
@@ -24,9 +23,20 @@ async def handle_alert(alert: AirflowAlert, channel: str, thread_ts: str, client
     )
 
     try:
+        async def _get_failed_tasks():
+            if alert.task_id:
+                return [{"task_id": alert.task_id, "try_number": alert.try_number or 1}]
+            return await read.get_failed_tasks(alert.dag_id, alert.dag_run_id)
+
         failed_tasks, analysis = await asyncio.gather(
-            read.get_failed_tasks(alert.dag_id, alert.dag_run_id),
-            _agent.analyze_failure(alert.dag_id, alert.dag_run_id),
+            _get_failed_tasks(),
+            _agent.analyze_failure(
+                alert.dag_id,
+                alert.dag_run_id,
+                hint_task_id=alert.task_id,
+                hint_try_number=alert.try_number,
+                hint_error_msg=alert.error_msg,
+            ),
         )
     except Exception as e:
         await client.chat_postMessage(

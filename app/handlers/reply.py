@@ -2,10 +2,23 @@
 
 from slack_sdk.web.async_client import AsyncWebClient
 
-from slack.agent import AirflowAgent
-from slack.store import thread_store
+from app.agent import AirflowAgent
+from app.store import thread_store
 
 _agent = AirflowAgent()
+
+
+async def _fetch_thread_history(client: AsyncWebClient, channel: str, thread_ts: str) -> list[dict]:
+    """Return all messages in a thread as [{role, content}] for LLM context."""
+    response = await client.conversations_replies(channel=channel, ts=thread_ts)
+    messages = response.get("messages", [])
+    history = []
+    for msg in messages:
+        role = "assistant" if msg.get("bot_id") else "user"
+        content = msg.get("text", "")
+        if content:
+            history.append({"role": role, "content": content})
+    return history
 
 
 async def handle_reply(
@@ -18,6 +31,7 @@ async def handle_reply(
     """Interpret the DE's instruction and execute the appropriate Airflow action."""
 
     ctx = thread_store.get(thread_ts)
+    thread_history = await _fetch_thread_history(client, channel, thread_ts)
 
     await client.reactions_add(channel=channel, name="thinking_face", timestamp=message_ts)
 
@@ -29,10 +43,11 @@ async def handle_reply(
                 dag_id=ctx["dag_id"],
                 dag_run_id=ctx["dag_run_id"],
                 failed_tasks=ctx["failed_tasks"],
+                thread_history=thread_history,
             )
         else:
             # General thread (e.g. after an @mention) — treat as a question
-            result = await _agent.handle_general_question(text)
+            result = await _agent.handle_general_question(text, thread_history=thread_history)
     except Exception as e:
         await client.chat_postMessage(
             channel=channel,

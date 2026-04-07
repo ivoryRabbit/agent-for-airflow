@@ -1,25 +1,25 @@
 import os
 
-from .base import LLMProvider
+from app.llm.base import LLMProvider
 
 
 def create_provider() -> LLMProvider:
     """Instantiate the LLM provider selected via LLM_PROVIDER env var.
 
-    Supported values: 'claude' (default), 'openai'.
+    Supported values: 'claude' (default), 'openai', 'gemini'.
     """
     provider = os.environ.get("LLM_PROVIDER", "claude").lower()
 
     if provider == "claude":
-        from .claude import ClaudeProvider
+        from app.llm.claude import ClaudeProvider
         return ClaudeProvider()
 
     if provider == "openai":
-        from .openai import OpenAIProvider
+        from app.llm.openai import OpenAIProvider
         return OpenAIProvider()
 
     if provider == "gemini":
-        from .gemini import GeminiProvider
+        from app.llm.gemini import GeminiProvider
         return GeminiProvider()
 
     raise ValueError(

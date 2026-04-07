@@ -1,6 +1,6 @@
 from typing import Any
 
-from ..airflow_client import get_client
+from app.airflow.client import get_client
 
 
 async def trigger_dag(

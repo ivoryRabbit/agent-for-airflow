@@ -6,22 +6,38 @@ Step-by-step flows for each scenario the agent handles.
 
 ## 1. DAG Failure Alert
 
-**Trigger**: Airflow DAG `on_failure_callback` posts an alert message to the monitored Slack channel.
+**Trigger**: Airflow DAG `on_failure_callback` posts an alert via Slack Incoming Webhook (`SlackWebhookHook`, conn_id: `slack_default`).
+
+**Alert message format**
+```
+:red_circle: DAG *{dag_id}* failed
+• Run ID: `{dag_run_id}`
+• Failed task: `{task_id}` (attempt {try_number})
+• Execution date: `{execution_date}`
+• Schedule: `{schedule_interval}`
+• Owner: `{owner}`
+• Duration: {duration}s
+• Error: {error_msg}
+• Log: {log_url}
+```
 
 ```
 Step 1. Slack App receives message_event (top-level, not a thread reply)
         └─ Skip if message contains a bot @mention (handled by app_mention handler)
         └─ Check if message contains "dag" AND ("failed" OR "failure")
 
-Step 2. Parse dag_id and dag_run_id from the alert message
+Step 2. Parse alert fields from the message
+        └─ Required: dag_id, dag_run_id
+        └─ Optional hints: task_id, try_number, error_msg
 
-Step 3. Call read-only tools in parallel
-        ├─ get_dag_run_status(dag_id, dag_run_id)
-        └─ get_failed_tasks(dag_id, dag_run_id)
+Step 3. Fetch failed task list (skipped if task_id already parsed from alert)
+        └─ If task_id present in alert → use directly, skip get_failed_tasks API call
+        └─ Otherwise → call get_failed_tasks(dag_id, dag_run_id)
 
-Step 4. For each failed task, call get_task_logs(dag_id, dag_run_id, task_id)
+Step 4. For each failed task, call get_task_logs(dag_id, dag_run_id, task_id, try_number)
 
 Step 5. LLM analyzes the logs and produces a structured summary
+        └─ error_msg from alert used as a hint to guide analysis
         └─ Root cause (e.g., timeout, connection error, data issue, code error)
         └─ Key error message
         └─ Numbered list of suggested actions

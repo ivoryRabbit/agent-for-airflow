@@ -1,11 +1,14 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class AirflowAlert:
     dag_id: str
     dag_run_id: str
+    task_id: str | None = field(default=None)
+    try_number: int | None = field(default=None)
+    error_msg: str | None = field(default=None)
 
 
 # Patterns for common Airflow Slack alert formats.
@@ -21,9 +24,23 @@ _RUN_ID_PATTERNS = [
     r"(scheduled__\S+|manual__\S+|backfill__\S+)",
 ]
 
+_TASK_ID_PATTERNS = [
+    r"Failed task[:\s]+[`*_]*([a-zA-Z0-9_.-]+)[`*_]*",
+    r"task_id[:\s=]+[`*_]*([a-zA-Z0-9_.-]+)[`*_]*",
+]
+
+_TRY_NUMBER_PATTERNS = [
+    r"attempt\s+(\d+)",
+    r"try_number[:\s=]+(\d+)",
+]
+
+_ERROR_PATTERNS = [
+    r"Error[:\s]+(.+)",
+]
+
 
 def parse_alert(text: str) -> AirflowAlert | None:
-    """Extract dag_id and dag_run_id from an Airflow alert Slack message.
+    """Extract alert fields from an Airflow failure Slack message.
 
     Returns None if the message does not look like an Airflow failure alert.
     """
@@ -31,7 +48,14 @@ def parse_alert(text: str) -> AirflowAlert | None:
     dag_run_id = _first_match(text, _RUN_ID_PATTERNS)
 
     if dag_id and dag_run_id:
-        return AirflowAlert(dag_id=dag_id, dag_run_id=dag_run_id)
+        try_number_str = _first_match(text, _TRY_NUMBER_PATTERNS)
+        return AirflowAlert(
+            dag_id=dag_id,
+            dag_run_id=dag_run_id,
+            task_id=_first_match(text, _TASK_ID_PATTERNS),
+            try_number=int(try_number_str) if try_number_str else None,
+            error_msg=_first_match(text, _ERROR_PATTERNS),
+        )
     return None
 
 

@@ -9,8 +9,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
     _AIRFLOW_WWW_USER_USERNAME: airflow
     _AIRFLOW_WWW_USER_PASSWORD: airflow
-    SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-    SLACK_ALERT_CHANNEL: ${SLACK_ALERT_CHANNEL}
+    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+    _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-slack"
   volumes:
     - ./dags:/opt/airflow/dags
     - airflow-logs:/opt/airflow/logs
@@ -45,7 +45,13 @@ services:
           --firstname Air \
           --lastname Flow \
           --role Admin \
-          --email airflow@example.com
+          --email airflow@example.com || true &&
+        WEBHOOK_TOKEN=$$(echo "$$SLACK_WEBHOOK_URL" | sed 's|https://hooks.slack.com/services/||') &&
+        airflow connections delete slack_default 2>/dev/null || true &&
+        airflow connections add slack_default \
+          --conn-type slackwebhook \
+          --conn-host "hooks.slack.com/services" \
+          --conn-password "$$WEBHOOK_TOKEN"
     restart: "no"
 
   airflow-webserver:

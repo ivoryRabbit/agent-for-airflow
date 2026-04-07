@@ -19,11 +19,9 @@ How to set the failure mode:
 
 from __future__ import annotations
 
-import os
 import time
 from datetime import datetime, timedelta
 
-import requests
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
@@ -33,29 +31,32 @@ DAG_ID = "example_pipeline"
 
 
 def _slack_failure_callback(context) -> None:
-    token = os.environ.get("SLACK_BOT_TOKEN", "")
-    channel = os.environ.get("SLACK_ALERT_CHANNEL", "")
-    if not token or not channel:
-        print("Slack env vars not set, skipping alert.")
-        return
+    from airflow.providers.slack.hooks.slack_webhook import SlackWebhookHook
 
-    dag_id = context["dag"].dag_id
-    run_id = context["run_id"]
-    task_id = context["task"].task_id
+    dag = context["dag"]
+    ti = context["task_instance"]
+    exception = context.get("exception")
+
+    duration = (
+        round((ti.end_date - ti.start_date).total_seconds())
+        if ti.start_date and ti.end_date
+        else "unknown"
+    )
+    error_msg = str(exception).splitlines()[0] if exception else "unknown"
 
     text = (
-        f":red_circle: DAG *{dag_id}* failed\n"
-        f"Run ID: `{run_id}`\n"
-        f"Failed task: `{task_id}`"
+        f":red_circle: DAG *{dag.dag_id}* failed\n"
+        f"• Run ID: `{context['run_id']}`\n"
+        f"• Failed task: `{ti.task_id}` (attempt {ti.try_number})\n"
+        f"• Execution date: `{context['data_interval_start']}`\n"
+        f"• Schedule: `{dag.schedule_interval}`\n"
+        f"• Owner: `{dag.owner}`\n"
+        f"• Duration: {duration}s\n"
+        f"• Error: {error_msg}\n"
+        f"• Log: {ti.log_url}"
     )
-    resp = requests.post(
-        "https://slack.com/api/chat.postMessage",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"channel": channel, "text": text},
-        timeout=10,
-    )
-    if not resp.json().get("ok"):
-        print(f"Slack alert failed: {resp.json()}")
+    hook = SlackWebhookHook(slack_webhook_conn_id="slack_default")
+    hook.send(text=text)
 
 
 default_args = {
@@ -130,7 +131,7 @@ with DAG(
     wait_for_source = PythonSensor(
         task_id="wait_for_source",
         python_callable=_check_source_ready,
-        timeout=60,        # short for testing — triggers timeout quickly
+        timeout=30,        # short for testing — triggers timeout quickly
         poke_interval=10,
         mode="poke",
     )

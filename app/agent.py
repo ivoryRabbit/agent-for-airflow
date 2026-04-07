@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from app.tools import read, write
-from slack.llm.base import LLMProvider, ToolDefinition
-from slack.llm.factory import create_provider
+from app.airflow.tools import read, write
+from app.llm.base import LLMProvider, ToolDefinition
+from app.llm.factory import create_provider
 
 WRITE_TOOLS: list[ToolDefinition] = [
     ToolDefinition(
@@ -126,9 +126,23 @@ class AirflowAgent:
     def __init__(self, provider: LLMProvider | None = None) -> None:
         self._provider = provider or create_provider()
 
-    async def analyze_failure(self, dag_id: str, dag_run_id: str) -> str:
-        """Fetch logs for all failed tasks and return a structured analysis."""
-        failed_tasks = await read.get_failed_tasks(dag_id, dag_run_id)
+    async def analyze_failure(
+        self,
+        dag_id: str,
+        dag_run_id: str,
+        hint_task_id: str | None = None,
+        hint_try_number: int | None = None,
+        hint_error_msg: str | None = None,
+    ) -> str:
+        """Fetch logs for all failed tasks and return a structured analysis.
+
+        hint_* fields come from the Slack alert message and skip redundant API calls
+        when available.
+        """
+        if hint_task_id:
+            failed_tasks = [{"task_id": hint_task_id, "try_number": hint_try_number or 1}]
+        else:
+            failed_tasks = await read.get_failed_tasks(dag_id, dag_run_id)
 
         if not failed_tasks:
             return f"No failed tasks found in `{dag_id}` run `{dag_run_id}`."
@@ -141,8 +155,10 @@ class AirflowAgent:
             trimmed = log_data["logs"][-3000:] if len(log_data["logs"]) > 3000 else log_data["logs"]
             log_sections.append(f"=== Task: {task['task_id']} ===\n{trimmed}")
 
+        hint_section = f"Error hint from alert: {hint_error_msg}\n\n" if hint_error_msg else ""
         prompt = (
             f"DAG: {dag_id}\nRun ID: {dag_run_id}\n\n"
+            f"{hint_section}"
             f"Failed task logs:\n\n" + "\n\n".join(log_sections)
         )
         return await self._provider.analyze(ANALYZE_SYSTEM, prompt)
@@ -153,24 +169,43 @@ class AirflowAgent:
         dag_id: str,
         dag_run_id: str,
         failed_tasks: list[dict[str, Any]],
+        thread_history: list[dict[str, Any]] | None = None,
     ) -> str:
         """Interpret a DE's natural language instruction and execute the appropriate tool."""
+        history_section = _format_thread_history(thread_history)
         prompt = (
             f"DAG: {dag_id}\n"
             f"Run ID: {dag_run_id}\n"
-            f"Failed tasks: {', '.join(t['task_id'] for t in failed_tasks)}\n\n"
+            f"Failed tasks: {', '.join(t['task_id'] for t in failed_tasks)}\n"
+            f"{history_section}"
             f"DE instruction: {instruction}"
         )
         return await self._provider.run_with_tools(
             INSTRUCTION_SYSTEM, prompt, WRITE_TOOLS, _execute_tool
         )
 
-
-    async def handle_general_question(self, question: str) -> str:
+    async def handle_general_question(
+        self,
+        question: str,
+        thread_history: list[dict[str, Any]] | None = None,
+    ) -> str:
         """Answer a free-form question about Airflow using read-only tools."""
+        history_section = _format_thread_history(thread_history)
+        prompt = f"{history_section}Question: {question}" if history_section else question
         return await self._provider.run_with_tools(
-            GENERAL_SYSTEM, question, READ_TOOLS, _execute_read_tool
+            GENERAL_SYSTEM, prompt, READ_TOOLS, _execute_read_tool
         )
+
+
+def _format_thread_history(thread_history: list[dict[str, Any]] | None) -> str:
+    if not thread_history:
+        return ""
+    lines = ["[Thread history]"]
+    for msg in thread_history:
+        role = "Bot" if msg["role"] == "assistant" else "DE"
+        lines.append(f"{role}: {msg['content']}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
 
 
 async def _execute_read_tool(name: str, inputs: dict[str, Any]) -> Any:

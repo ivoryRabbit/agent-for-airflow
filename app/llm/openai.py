@@ -4,7 +4,7 @@ from typing import Any, Awaitable, Callable
 
 import openai
 
-from .base import LLMProvider, ToolDefinition
+from app.llm.base import LLMProvider, ToolDefinition
 
 
 class OpenAIProvider(LLMProvider):

@@ -1,6 +1,6 @@
 from typing import Any
 
-from ..airflow_client import get_client
+from app.airflow.client import get_client
 
 
 async def get_dag_run_status(dag_id: str, dag_run_id: str) -> dict[str, Any]:
