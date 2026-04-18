@@ -75,6 +75,17 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  agent:
+    build: .
+    env_file: .env
+    environment:
+      # Override so the agent reaches Airflow via the internal Docker network
+      AIRFLOW_BASE_URL: http://airflow-webserver:8080
+    restart: unless-stopped
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   airflow-logs:
